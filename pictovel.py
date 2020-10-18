@@ -6,6 +6,18 @@ import os
 import sys
 import numpy as np
 import cv2
+import rospy
+from sensor_msgs.msg import PointCloud2,PointField
+from sensor_msgs import point_cloud2
+from sensor_msgs.msg import Image as newImage
+from cv_bridge import CvBridge,CvBridgeError
+#from geometry_msgs import Point
+import std_msgs.msg
+import sensor_msgs.point_cloud2 as pc2
+import time
+#import pcl
+import pcl_msgs
+import pcl_ros
 from PIL import Image
 
 import json
@@ -136,6 +148,7 @@ def maybe_download_and_extract(runs_dir):
     return
 
 
+
 def resize_label_image(image, gt_image, image_height, image_width):
     image = scp.misc.imresize(image, size=(image_height, image_width),
                               interp='cubic')
@@ -202,14 +215,31 @@ def main(_):
 
     dataset=kitti_object(os.path.join(ROOT_DIR,'free-space/dataset/KITTI/object'))
 
+    point_pub = rospy.Publisher('cloud',PointCloud2,queue_size=50)
+    # picture_pub = rospy.Publisher("kitti_image",newImage,queue_size=50)
+    rospy.init_node('point-cloud',anonymous=True)
+    # h = std_msgs.msg.Header()
+    # h.frame_id="base_link"
+    # h.stamp=rospy.Time.now()
+    #rate = rospy.Rate(10)
+    #point_msg=PointCloud2()
+    
+    video_dir='/home/user/Data/lrx_work/free-space/kitti.avi'
+    fps=10
+    num=4541
+    img_size=(1241,376)
+    fourcc='mp4v'
+    videoWriter=cv2.VideoWriter(video_dir,cv2.VideoWriter_fourcc(*fourcc),fps,img_size)
+
+    calib = dataset.get_calibration(0)
     for data_idx in range(len(dataset)):                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        
-        objects = dataset.get_label_objects(data_idx)
+        #objects = dataset.get_label_objects(data_idx)
 
 
         # Load and resize input image
         image = dataset.get_image(data_idx)
         image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
-        scp.misc.imsave('new.png', image)
+        #scp.misc.imsave('new.png', image)
         if hypes['jitter']['reseize_image']:
             # Resize input only, if specified in hypes
             image_height = hypes['jitter']['image_height']
@@ -217,10 +247,13 @@ def main(_):
             image = scp.misc.imresize(image, size=(image_height, image_width),
                                       interp='cubic')
         img_height, img_width, img_channel = image.shape
-        pc_velo = dataset.get_lidar(data_idx)[:,0:3]
+        print("picture-shape")
+        print(len(image))
+        print(len(image[0]))
+        pc_velo = dataset.get_lidar(data_idx)[:,0:3]    
         print(len(pc_velo))
         velo_len=len(pc_velo)
-        calib = dataset.get_calibration(data_idx)
+        #calib = dataset.get_calibration(data_idx)
 
         # Run KittiSeg model on image
         feed = {image_pl: image}
@@ -233,7 +266,7 @@ def main(_):
 
         # Plot confidences as red-blue overlay
         rb_image = seg.make_overlay(image, output_image)
-        scp.misc.imsave('new0.png', rb_image)
+        # scp.misc.imsave('new0.png', rb_image)
 
         # Accept all pixel with conf >= 0.5 as positive prediction
         # This creates a `hard` prediction result for class street
@@ -243,10 +276,10 @@ def main(_):
         index=np.where(street_prediction==True)
         chang = len(index[0])
         print(chang)
-        test = np.zeros((velo_len,2),dtype=np.int)
-        for tmp0 in range(chang):
-            test[tmp0][0]=index[0][tmp0]
-            test[tmp0][1]=index[1][tmp0]
+        # test = np.zeros((velo_len,2),dtype=np.int)
+        # for tmp0 in range(chang):
+        #     test[tmp0][0]=index[0][tmp0]
+        #     test[tmp0][1]=index[1][tmp0]
         print("suoyindayin")
         # if (chang>0):
         #     print(test[0][0])
@@ -266,17 +299,17 @@ def main(_):
         # print(fov_inds[1000])
         # print(pc_velo.shape)
         print("okok")
-        fov_inds = fov_inds & (pc_velo[:,0]>2.0)
+        fov_inds = fov_inds & (pc_velo[:,0]>0)
         print(fov_inds.shape)
         imgfov_pts_2d=pts_2d[fov_inds,:]
         imgfov_pc_velo = pc_velo[fov_inds, :]
         pts_2d0=calib.project_velo_to_image(imgfov_pc_velo)
-        fov_inds0 = (pts_2d0[:,0]<1242) & (pts_2d0[:,0]>=0) & \
-            (pts_2d0[:,1]<370) & (pts_2d0[:,1]>=0)
+        fov_inds0 = (pts_2d0[:,0]<len(image[0])) & (pts_2d0[:,0]>=0) & \
+            (pts_2d0[:,1]<len(image)) & (pts_2d0[:,1]>=0)
         fov_inds0 = fov_inds0 & (imgfov_pc_velo[:,0]>2.0)
         print(fov_inds0.shape)
-        print(fov_inds0[2])
-        print(imgfov_pts_2d.shape)
+        print(street_prediction.shape)
+        print(pts_2d0.shape)
         # if(chang>0):
         #     print(int(imgfov_pts_2d[5,0]))
         #     print(int(imgfov_pts_2d[5,1]))
@@ -284,9 +317,76 @@ def main(_):
         
         if(chang>0):
             for i in range(len(fov_inds0)):
-                fov_inds0[i]=fov_inds0[i] & (street_prediction[int(pts_2d0[i,1]),int(pts_2d0[i,0])]==True)
+                if((pts_2d0[i,1]<len(street_prediction))&(pts_2d0[i,0]<len(street_prediction[0]))):
+                    fov_inds0[i]=fov_inds0[i] & (street_prediction[int(pts_2d0[i,1]),int(pts_2d0[i,0])]==True)
         imgfov_pc_velo0 = imgfov_pc_velo[fov_inds0, :]
+        print("number")
+        green_image = tv_utils.fast_overlay(image, street_prediction)
+        # pub point-cloud topic
+        print(imgfov_pc_velo0.shape)
+        number=len(imgfov_pc_velo0)
+
+        header=std_msgs.msg.Header()
+        header.stamp=rospy.Time.now()
+        header.frame_id="velodyne"
+        points=pc2.create_cloud_xyz32(header,imgfov_pc_velo0)
+        
+        
+        # point=Point()
+        
+
+
+        # for t in range(0,number):
+        #     point_x=imgfov_pc_velo0[t][0]
+        #     point_y=imgfov_pc_velo0[t][1]
+        #     point_z=imgfov_pc_velo0[t][2]
+        #     point_msg.points[t].point.x=point_x
+        #     point_msg.points[t].point.y=point_y
+        #     point_msg.points[t].point.z=point_z
+            
+        # point_pub.publish(points)
+        # videoWriter.write(green_image)
+
+
+        # bridge=CvBridge()
+        # picture_pub.publish(bridge.cv2_to_imgmsg(green_image,"rgb8"))
+
+
+        # minx=imgfov_pc_velo0[0][0]
+        # miny=imgfov_pc_velo0[0][1]
+        # minz=imgfov_pc_velo0[0][2]
+        # maxx=imgfov_pc_velo0[0][0]
+        # maxy=imgfov_pc_velo0[0][1]
+        # maxz=imgfov_pc_velo0[0][2]
+
+        # for t in range(len(imgfov_pc_velo0)):
+        #     minx=min(minx,imgfov_pc_velo0[t][0])
+        #     miny=min(miny,imgfov_pc_velo0[t][1])
+        #     minz=min(minz,imgfov_pc_velo0[t][2])
+        #     maxx=max(maxx,imgfov_pc_velo0[t][0])
+        #     maxy=max(maxy,imgfov_pc_velo0[t][1])
+        #     maxz=max(maxz,imgfov_pc_velo0[t][2])
+        # print(minx,miny,minz,maxx,maxy,maxz)
+        # width=1024
+        # height=1024
+        # img_res=np.zeros([width,height,3],dtype=np.uint8)
+        # for p in range(len(imgfov_pc_velo0)):
+        #     velo_x=5*(int(imgfov_pc_velo0[p][0])+50)
+        #     velo_y=5*(int(imgfov_pc_velo0[p][1])+50)
+        #     img_res[velo_x][velo_y]=255
+        #     scale=25
+        #     if((velo_x>scale)&(velo_x+scale<1024)&(velo_y>scale)&(velo_y+scale<1024)):
+        #         for q in range(scale):
+        #             for m in range(scale):
+        #                 img_res[velo_x-q][velo_y-m]=255
+        #                 img_res[velo_x-q][velo_y+m]=255
+        #                 img_res[velo_x+q][velo_y-m]=255
+        #                 img_res[velo_x+q][velo_y+m]=255
+        # scp.misc.imsave('res.png',img_res)
+
+
         draw_lidar(imgfov_pc_velo0, fig=fig)
+
 
         # for obj in objects:
         #     if obj.type == 'DontCare': continue
@@ -301,10 +401,12 @@ def main(_):
         #     draw_gt_boxes3d([box3d_pts_3d_velo], fig=fig)
         #     mlab.plot3d([x1, x2], [y1, y2], [z1, z2], color=(0.5, 0.5, 0.5),
         #                 tube_radius=None, line_width=1, figure=fig)
-        mlab.show(1)
+
+        
+        #mlab.show(1)
 
         # Plot the hard prediction as green overlay
-        green_image = tv_utils.fast_overlay(image, street_prediction)
+      
 
         # Save output images to disk.
         if FLAGS.output_image is None:
@@ -316,9 +418,11 @@ def main(_):
         # rb_image_name = output_base_name.split('.')[0] + '_rb.png'
         # green_image_name = output_base_name.split('.')[0] + '_green.png'
 
-        scp.misc.imsave('1.png', output_image)
-        scp.misc.imsave('2.png', rb_image)
-        scp.misc.imsave('3.png', green_image)
+
+
+        # scp.misc.imsave('1.png', output_image)
+        # scp.misc.imsave('2.png', rb_image)
+        # scp.misc.imsave('3.png', green_image)
         raw_input()
 
 if __name__ == '__main__':
