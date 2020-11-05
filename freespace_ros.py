@@ -69,7 +69,7 @@ flags.DEFINE_string('output_image', None,
                     'Image to apply KittiSeg.')
 
 
-default_run = 'KittiSeg_pretrained'
+default_run = 'KittiSeg_2020_10_18_01.26'
 weights_url = ("ftp://mi.eng.cam.ac.uk/"
                "pub/mttt2/models/KittiSeg_pretrained.zip")
 
@@ -215,15 +215,42 @@ def main(_):
         logging.info("Weights loaded successfully.")
 
     dataset=kitti_object(os.path.join(ROOT_DIR,'free-space/dataset/KITTI/object'))
+    brideg = CvBridge()
 
+    def expend3(pts_3d):
+        n = pts_3d.shape[0]
+        pts_3d_hom = np.hstack((pts_3d,np.ones((n,1))))
+        return pts_3d_hom
+
+    P_0 = [[665.373765,0.00,308.477032],[0.00,660.876949,341.540759],[0.00,0.00,1.00]]
+    P_1 = [[-0.0121,-0.9999,0.0010,-0.0504],[-0.0109,-0.0009,-0.9999,0.0030],[0.9999,-0.0122,-0.0109,-0.0963]]
+    distort = [0.163407,-0.182330,0.005264,0.011895,0.00]
     def callback(image,Pointcloud):
-        n = Pointcloud.header.width
+        print("ros topic input")
+        gen = point_cloud2.read_points(Pointcloud,field_names=("x","y","z"),skip_nans=True)
+        n=30000
+        # for q in gen:
+        #     n=n+1
+        # print(n)
         pc_velo = np.zeros([n,3])
-        for i in range(n):
-            pc_velo[i,0]=Pointcloud.points[i].x
-            pc_velo[i,1]=Pointcloud.points[i].y
-            pc_velo[i,2]=Pointcloud.points[i].z
+        i=0
+        for p in gen:
+            pc_velo[i,0]=p[0]
+            pc_velo[i,1]=p[1]
+            pc_velo[i,2]=p[2]
+            i=i+1
+        print(i)
+
+        image = brideg.imgmsg_to_cv2(image)
         image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+
+        # undistort
+        h,w = image.shape[:2]
+        k = np.array(P_0)
+        d = np.array(distort)
+        mapx,mapy = cv2.initUndistortRectifyMap(k,d,None,k,(w,h),5)
+        image = cv2.remap(image,mapx,mapy,cv2.INTER_LINEAR)
+
         if hypes['jitter']['reseize_image']:
             # Resize input only, if specified in hypes
             image_height = hypes['jitter']['image_height']
@@ -231,6 +258,9 @@ def main(_):
             image = scp.misc.imresize(image, size=(image_height, image_width),
                                       interp='cubic')
         img_height, img_width, img_channel = image.shape
+
+        # fig = mlab.figure(figure=None, bgcolor=(0, 0, 0),
+        #                   fgcolor=None, engine=None, size=(1000, 500))
 
         # Run KittiSeg model on image
         feed = {image_pl: image}
@@ -250,32 +280,68 @@ def main(_):
 
         index=np.where(street_prediction==True)
         chang = len(index[0])
-        pts_2d=calib.project_velo_to_image(pc_velo)
+        print(chang)
+        #pts_2d=calib.project_velo_to_image(pc_velo)
+        pc_4=expend3(pc_velo)
+        cam_3d = np.dot(pc_4,np.transpose(P_1))
 
-        fig = mlab.figure(figure=None, bgcolor=(0, 0, 0),
-                          fgcolor=None, engine=None, size=(1000, 500))
-        fov_inds = (pts_2d[:,0]<1242) & (pts_2d[:,0]>=0) & \
-            (pts_2d[:,1]<370) & (pts_2d[:,1]>=0)
-        fov_inds = fov_inds & (pc_velo[:,0]>0)
+        pts_3d=np.dot(cam_3d,np.transpose(P_0))
+        pts_3d[:,0] /= cam_3d[:,2]
+        pts_3d[:,1] /= cam_3d[:,2]
+        pts_2d=pts_3d[:,0:2]
+        print(pts_2d.shape)
+        print("image coordinate")
+        print(pts_2d[1,0])
+        print(pts_2d[1,1])
+
+        # fov_inds = (pts_2d[:,0]<640) & (pts_2d[:,0]>=0) & \
+        #     (pts_2d[:,1]<480) & (pts_2d[:,1]>=0)
+        # fov_inds = (pts_2d[:,0]<640) & (pts_2d[:,0]>0) & \
+        #     (pts_2d[:,1]<480) & (pts_2d[:,1]>0)
+        # fov_inds = fov_inds & (pc_velo[:,0]<0)
+        fov_inds = pc_velo[:,0]>0
         print(fov_inds.shape)
-        imgfov_pts_2d=pts_2d[fov_inds,:]
+        print(pts_2d.shape)
+
         imgfov_pc_velo = pc_velo[fov_inds, :]
-        pts_2d0=calib.project_velo_to_image(imgfov_pc_velo)
+        print(imgfov_pc_velo.shape)
+        #pts_2d0=calib.project_velo_to_image(imgfov_pc_velo)
+        pc_4_0=expend3(imgfov_pc_velo)
+        cam_3d_0 = np.dot(pc_4_0,np.transpose(P_1))
+        pts_3d_0=np.dot(cam_3d_0,np.transpose(P_0))
+        pts_3d_0[:,0] /= cam_3d_0[:,2]
+        pts_3d_0[:,1] /= cam_3d_0[:,2]
+        pts_2d0=pts_3d_0[:,0:2]
+        print("camera")
+        print(pts_2d0.shape)
+        print("image size")
+        print(len(image[0]))
+        print(len(image))
         fov_inds0 = (pts_2d0[:,0]<len(image[0])) & (pts_2d0[:,0]>=0) & \
             (pts_2d0[:,1]<len(image)) & (pts_2d0[:,1]>=0)
-        fov_inds0 = fov_inds0 & (imgfov_pc_velo[:,0]>2.0)
-
+        #fov_inds0 = fov_inds0 & (imgfov_pc_velo[:,0]>2.0)
+        print(fov_inds0.shape)
+        #imgfov_pc_velo0 = imgfov_pc_velo[fov_inds0, :]
+        #print(imgfov_pc_velo0.shape)
         if(chang>0):
             for i in range(len(fov_inds0)):
-                if((pts_2d0[i,1]<len(street_prediction))&(pts_2d0[i,0]<len(street_prediction[0]))):
+                if((pts_2d0[i,1]<len(street_prediction))&(pts_2d0[i,0]<len(street_prediction[0]))&(pts_2d0[i,0]>=0)&(pts_2d0[i,1]>=0)):
                     fov_inds0[i]=fov_inds0[i] & (street_prediction[int(pts_2d0[i,1]),int(pts_2d0[i,0])]==True)
-        imgfov_pc_velo0 = imgfov_pc_velo[fov_inds0, :]
+
+        # if(chang>0):
+        #     for i in range(len(fov_inds)):
+        #         if((pts_2d0[i,1]<len(street_prediction))&(pts_2d0[i,0]<len(street_prediction[0]))):
+        #             fov_inds[i]=fov_inds[i] & (street_prediction[int(pts_2d0[i,1]),int(pts_2d0[i,0])]==True)
+        #imgfov_pc_velo0 = imgfov_pc_velo[fov_inds0, :]
         print("number")
         green_image = tv_utils.fast_overlay(image, street_prediction)
+        imgfov_pc_velo0 = imgfov_pc_velo[fov_inds0, :]
         # pub point-cloud topic
         print(imgfov_pc_velo0.shape)
         videoWriter.write(green_image)
         number=len(imgfov_pc_velo0)
+
+        # draw_lidar(pc_velo, fig=fig)
 
         header=std_msgs.msg.Header()
         header.stamp=rospy.Time.now()
@@ -283,24 +349,29 @@ def main(_):
         points=pc2.create_cloud_xyz32(header,imgfov_pc_velo0)
         point_pub.publish(points)
         
+        # raw_input()
 
     # make a video 
-    video_dir='/home/user/Data/lrx_work/free-space/kitti.avi'
+    video_dir='/home/user/Data/lrx_work/free-space/hitsz.avi'
     fps=10
     num=4541
-    img_size=(1241,376)
+    img_size=(640,480)
     fourcc='mp4v'
     videoWriter=cv2.VideoWriter(video_dir,cv2.VideoWriter_fourcc(*fourcc),fps,img_size)
 
     # get transform martix 
     calib = dataset.get_calibration(0)
 
-    point_pub = rospy.Publisher('cloud',PointCloud2,queue_size=50)
+    point_pub = rospy.Publisher('new_cloud',PointCloud2,queue_size=50)
     rospy.init_node('point-cloud',anonymous=True)
-    image_sub = message_filters.Subscriber('image',image)
-    point_sub = message_filters.Subscriber('point_cloud',Pointcloud)
-    ts = message_filters.TimeSynchronizer([image_sub, info_sub], 10)
+    image_sub = message_filters.Subscriber("/usb_cam/image_raw",newImage)
+    point_sub = message_filters.Subscriber("/velodyne_points",PointCloud2)
+    # ts = message_filters.TimeSynchronizer([image_sub, point_sub], 10)
+    ts = message_filters.ApproximateTimeSynchronizer([image_sub, point_sub], 10, 0.1, allow_headerless=True) 
+    print("here")
     ts.registerCallback(callback)
+
+
     rospy.spin()
 
     # h = std_msgs.msg.Header()
@@ -308,13 +379,6 @@ def main(_):
     # h.stamp=rospy.Time.now()
     #rate = rospy.Rate(10)
     #point_msg=PointCloud2()
-    
-    video_dir='/home/user/Data/lrx_work/free-space/kitti.avi'
-    fps=10
-    num=4541
-    img_size=(1241,376)
-    fourcc='mp4v'
-    videoWriter=cv2.VideoWriter(video_dir,cv2.VideoWriter_fourcc(*fourcc),fps,img_size)
 
 if __name__ == '__main__':
     tf.app.run()
