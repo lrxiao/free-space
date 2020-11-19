@@ -319,6 +319,7 @@ def main(_):
         print(len(image))
         fov_inds0 = (pts_2d0[:,0]<len(image[0])) & (pts_2d0[:,0]>=0) & \
             (pts_2d0[:,1]<len(image)) & (pts_2d0[:,1]>=0)
+        imgfov_pc_velo = pc_velo[fov_inds, :]
         #fov_inds0 = fov_inds0 & (imgfov_pc_velo[:,0]>2.0)
         print(fov_inds0.shape)
         #imgfov_pc_velo0 = imgfov_pc_velo[fov_inds0, :]
